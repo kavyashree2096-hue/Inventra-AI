@@ -1,0 +1,11 @@
+node_modules/
+inventra-front/node_modules/
+inventra-front/dist/
+__pycache__/
+*/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.vscode/
+.DS_Store
+*.log
