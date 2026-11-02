@@ -11,6 +11,10 @@ from .chat_routes import chat_bp
 from .report_routes import report_bp
 from .admin_routes import admin_bp
 from .career_routes import career_bp
+from .search_routes import search_bp
+from .audit_routes import audit_bp
+from .revenue_routes import revenue_bp
+from .data_analysis_routes import data_analysis_bp
 
 def register_blueprints(app):
     app.register_blueprint(auth_bp)
@@ -26,3 +30,7 @@ def register_blueprints(app):
     app.register_blueprint(report_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(career_bp)
+    app.register_blueprint(search_bp)
+    app.register_blueprint(audit_bp)
+    app.register_blueprint(revenue_bp)
+    app.register_blueprint(data_analysis_bp)

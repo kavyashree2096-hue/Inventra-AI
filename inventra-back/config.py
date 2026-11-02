@@ -14,6 +14,8 @@ class Config:
     # Database configuration
     # Default to PostgreSQL URL as specified, with SQLite fallback if PostgreSQL is unavailable
     RAW_DB_URL = os.getenv('DATABASE_URL', 'postgresql://postgres:postgres@localhost:5432/inventra_ai')
+    if RAW_DB_URL and RAW_DB_URL.startswith('postgres://'):
+        RAW_DB_URL = RAW_DB_URL.replace('postgres://', 'postgresql://', 1)
     
     # We will test connection or fallback in app initialization
     SQLALCHEMY_DATABASE_URI = RAW_DB_URL

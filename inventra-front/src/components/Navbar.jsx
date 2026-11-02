@@ -8,6 +8,8 @@ import { useAuth } from '../context/AuthContext';
 import { alertService } from '../services/alertService';
 import { inventoryService } from '../services/inventoryService';
 
+import GlobalSearch from './GlobalSearch';
+
 const Navbar = ({ onToggleSidebar }) => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -73,6 +75,9 @@ const Navbar = ({ onToggleSidebar }) => {
           </div>
         </Link>
       </div>
+
+      {/* Center: Global Search Bar */}
+      <GlobalSearch />
 
       {/* Right Action Controls */}
       <div className="flex items-center gap-2.5 sm:gap-3">

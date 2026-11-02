@@ -7,6 +7,7 @@ from .supplier import Supplier, SupplierProduct
 from .procurement import PurchaseRequisition, PurchaseRequisitionItem, PurchaseOrder, PurchaseOrderItem, Delivery
 from .forecast import DemandForecast, ModelMetric, ReorderRecommendation, ProcurementRecommendation
 from .alert import Alert, AuditLog, SystemSetting, ChatSession, ChatMessage
+from .audit import AuditSession, AuditSessionItem, DataUpload, ReportLog
 
 __all__ = [
     'db',
@@ -35,5 +36,9 @@ __all__ = [
     'AuditLog',
     'SystemSetting',
     'ChatSession',
-    'ChatMessage'
+    'ChatMessage',
+    'AuditSession',
+    'AuditSessionItem',
+    'DataUpload',
+    'ReportLog'
 ]

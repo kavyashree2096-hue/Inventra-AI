@@ -3,15 +3,28 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import {
   ShoppingCart, Truck, Clock, CheckCircle2, AlertTriangle,
   DollarSign, FileText, Plus, RefreshCw, BarChart2, ShieldCheck,
-  Lock, Sparkles, Send, Filter, Eye, ArrowRight
+  Lock, Sparkles, Send, Filter, Eye, ArrowRight, Package, Tag,
+  Download, Search, X, Check, ArrowUpDown, ChevronDown
 } from 'lucide-react';
 import {
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
+  PieChart, Pie, Cell, Legend
 } from 'recharts';
 import { useAuth } from '../context/AuthContext';
 import { procurementService } from '../services/procurementService';
 import PurchaseCard from '../components/PurchaseCard';
 import Modal from '../components/Modal';
+
+const STATUS_BADGES = {
+  'Out of Stock': 'bg-rose-50 text-rose-700 border-rose-200',
+  'Reorder Required': 'bg-amber-50 text-amber-700 border-amber-200',
+  'Low Stock': 'bg-orange-50 text-orange-700 border-orange-200',
+  'Pending Procurement': 'bg-sky-50 text-sky-700 border-sky-200',
+  'Procurement Completed': 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  'Sufficient Stock': 'bg-slate-100 text-slate-700 border-slate-200'
+};
+
+const PIE_COLORS = ['#0284c7', '#10b981', '#f59e0b', '#f43f5e', '#8b5cf6'];
 
 const ProcurementPage = () => {
   const navigate = useNavigate();
@@ -20,12 +33,29 @@ const ProcurementPage = () => {
   const currentRole = user?.role || 'Staff';
   const isManagerOrAdmin = ['Admin', 'Manager'].includes(currentRole);
 
-  const [dashboard, setDashboard] = useState(null);
-  const [analytics, setAnalytics] = useState(null);
-  const [requisitions, setRequisitions] = useState([]);
+  const [activeTab, setActiveTab] = useState('catalog'); // 'catalog' | 'recommendations' | 'requisitions' | 'charts'
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('recommendations'); // 'recommendations' | 'requisitions' | 'analytics'
   const [refreshing, setRefreshing] = useState(false);
+
+  // Data states
+  const [summary, setSummary] = useState(null);
+  const [dashboard, setDashboard] = useState(null);
+  const [procurementProducts, setProcurementProducts] = useState([]);
+  const [requisitions, setRequisitions] = useState([]);
+  const [chartsData, setChartsData] = useState(null);
+
+  // Filters for category product listing
+  const [selectedCategory, setSelectedCategory] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('All');
+  const [sortBy, setSortBy] = useState('status');
+  const [sortOrder, setSortOrder] = useState('asc');
+
+  // Category mapping modal
+  const [categoryModalOpen, setCategoryModalOpen] = useState(false);
+  const [selectedProductToMap, setSelectedProductToMap] = useState(null);
+  const [newCategoryId, setNewCategoryId] = useState('1');
+  const [mappingLoading, setMappingLoading] = useState(false);
 
   // New PO Modal (Manager/Admin)
   const [poModalOpen, setPoModalOpen] = useState(false);
@@ -35,7 +65,7 @@ const ProcurementPage = () => {
   const [poNotes, setPoNotes] = useState('');
   const [poSubmitting, setPoSubmitting] = useState(false);
 
-  // New Requisition Modal (Staff / Floor members)
+  // New Requisition Modal (Staff / Floor)
   const [reqModalOpen, setReqModalOpen] = useState(false);
   const [reqItem, setReqItem] = useState(null);
   const [reqQty, setReqQty] = useState(30);
@@ -43,55 +73,67 @@ const ProcurementPage = () => {
   const [reqReason, setReqReason] = useState('Urgent floor restock demand spike');
   const [reqSubmitting, setReqSubmitting] = useState(false);
 
+  // Receive PO Modal
+  const [receiveModalOpen, setReceiveModalOpen] = useState(false);
+  const [selectedPoToReceive, setSelectedPoToReceive] = useState(null);
+  const [receiveNotes, setReceiveNotes] = useState('Goods verified and placed into warehouse storage.');
+  const [receiving, setReceiving] = useState(false);
+
+  // Cancel PO Modal
+  const [cancelModalOpen, setCancelModalOpen] = useState(false);
+  const [selectedPoToCancel, setSelectedPoToCancel] = useState(null);
+  const [cancelReason, setCancelReason] = useState('Supplier unable to meet delivery SLA');
+  const [cancelling, setCancelling] = useState(false);
+
   const loadData = async () => {
     setLoading(true);
     try {
-      const [dashData, costData, reqData] = await Promise.all([
-        procurementService.getDashboard().catch((err) => {
-          console.warn('Dashboard fetch fallback:', err);
-          return null;
-        }),
-        procurementService.getCostAnalytics().catch((err) => {
-          console.warn('Analytics fetch fallback:', err);
-          return null;
-        }),
-        procurementService.getRequisitions().catch((err) => {
-          console.warn('Requisitions fetch fallback:', err);
-          return [];
-        })
+      const [sumRes, dashRes, prodRes, reqRes, chartRes] = await Promise.all([
+        procurementService.getSummary().catch(() => null),
+        procurementService.getDashboard().catch(() => null),
+        procurementService.getProcurementProducts({
+          category_id: selectedCategory || undefined,
+          search: searchQuery || undefined,
+          status: statusFilter,
+          sort_by: sortBy,
+          order: sortOrder
+        }).catch(() => ({ products: [] })),
+        procurementService.getRequisitions().catch(() => []),
+        procurementService.getCharts().catch(() => null)
       ]);
 
-      setDashboard(dashData || {
-        recommended_purchases_count: 0,
-        urgent_procurement_count: 0,
-        open_pos_count: 0,
-        in_transit_pos_count: 0,
-        completed_pos_count: 0,
-        total_procurement_value: 0,
-        recommendations: []
-      });
-      setAnalytics(costData);
-      setRequisitions(reqData || []);
+      setSummary(sumRes);
+      setDashboard(dashRes);
+      setProcurementProducts(prodRes.products || []);
+      setRequisitions(reqRes || []);
+      setChartsData(chartRes);
     } catch (err) {
       console.error('Failed to load procurement data:', err);
-      // Absolute fallback so page never blocks
-      setDashboard({
-        recommended_purchases_count: 0,
-        urgent_procurement_count: 0,
-        open_pos_count: 0,
-        in_transit_pos_count: 0,
-        completed_pos_count: 0,
-        total_procurement_value: 0,
-        recommendations: []
-      });
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [selectedCategory, statusFilter, sortBy, sortOrder]);
+
+  // Debounced search on product catalog
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      procurementService.getProcurementProducts({
+        category_id: selectedCategory || undefined,
+        search: searchQuery || undefined,
+        status: statusFilter,
+        sort_by: sortBy,
+        order: sortOrder
+      }).then((res) => {
+        setProcurementProducts(res.products || []);
+      }).catch(() => {});
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   const handleRegenerate = async () => {
     setRefreshing(true);
@@ -99,31 +141,29 @@ const ProcurementPage = () => {
       await procurementService.generateRecommendations();
       await loadData();
     } catch (err) {
-      console.error('Failed to regenerate recommendations:', err);
       alert(err.response?.data?.error || 'Failed to trigger recommendation engine');
     } finally {
       setRefreshing(false);
     }
   };
 
-  const handleOpenPO = (rec) => {
+  const handleOpenPO = (prod) => {
     if (!isManagerOrAdmin) {
-      // If staff, redirect to requisition modal instead
-      handleOpenReq(rec);
+      handleOpenReq(prod);
       return;
     }
-    setSelectedCard(rec);
-    setPoQty(rec.recommended_quantity);
-    setPoSupplierId(rec.supplier_id || 1);
-    setPoNotes(`Procurement order for ${rec.product_name} recommended by Inventra AI engine.`);
+    setSelectedCard(prod);
+    setPoQty(prod.suggested_quantity || 30);
+    setPoSupplierId(1);
+    setPoNotes(`Procurement order for ${prod.name} created via Procurement Hub.`);
     setPoModalOpen(true);
   };
 
-  const handleOpenReq = (rec) => {
-    setReqItem(rec);
-    setReqQty(rec.recommended_quantity || 25);
-    setReqPriority(rec.priority || 'Medium');
-    setReqReason(`Floor restock requested for ${rec.product_name} (Current stock: ${rec.current_stock})`);
+  const handleOpenReq = (prod) => {
+    setReqItem(prod);
+    setReqQty(prod.suggested_quantity || 25);
+    setReqPriority('Medium');
+    setReqReason(`Floor restock requested for ${prod.name} (Current: ${prod.current_stock}, Target: ${prod.target_stock})`);
     setReqModalOpen(true);
   };
 
@@ -140,7 +180,8 @@ const ProcurementPage = () => {
         status: 'Ordered'
       });
       setPoModalOpen(false);
-      navigate('/purchase-orders');
+      alert('Purchase Order successfully created and recorded in system audit log!');
+      loadData();
     } catch (err) {
       alert(err.response?.data?.error || 'Failed to create PO');
     } finally {
@@ -169,7 +210,28 @@ const ProcurementPage = () => {
     }
   };
 
-  if (loading) {
+  const handleSaveCategoryMapping = async (e) => {
+    e.preventDefault();
+    if (!selectedProductToMap) return;
+    setMappingLoading(true);
+    try {
+      await procurementService.updateProductCategory(selectedProductToMap.product_id, parseInt(newCategoryId));
+      setCategoryModalOpen(false);
+      setSelectedProductToMap(null);
+      loadData();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to update product category');
+    } finally {
+      setMappingLoading(false);
+    }
+  };
+
+  const handleDownloadCsv = () => {
+    const url = procurementService.getExportUrl();
+    window.open(url, '_blank');
+  };
+
+  if (loading && !summary) {
     return (
       <div className="p-12 flex flex-col items-center justify-center min-h-[60vh] space-y-4">
         <RefreshCw className="w-8 h-8 text-sky-600 animate-spin" />
@@ -178,34 +240,32 @@ const ProcurementPage = () => {
     );
   }
 
-  const recommendations = dashboard?.recommendations || [];
-
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-8">
-      {/* Header */}
+    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
+      {/* Header Banner */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
-              Inventory Procurement &amp; Supplier Hub
-            </h1>
-            {!isManagerOrAdmin && (
-              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
-                Staff Requisition Mode
-              </span>
-            )}
+            <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-sky-50 text-sky-700 border border-sky-200">
+              Procurement Intelligence
+            </span>
+            <span className="text-[10px] font-bold text-slate-400">• Persistent Catalog &amp; Supplier Matrix</span>
           </div>
+          <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight mt-1 flex items-center gap-2.5">
+            <ShoppingCart className="w-7 h-7 text-sky-600" />
+            <span>Procurement &amp; Replenishment Hub</span>
+          </h1>
           <p className="text-xs font-medium text-slate-500 mt-1">
-            Visual purchase recommendations, multi-criteria sourcing, and active purchase order orchestration
+            Category-wise product replenishment, purchase requisition lifecycle, and authorized goods receipt.
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           {isManagerOrAdmin && (
             <button
               onClick={handleRegenerate}
               disabled={refreshing}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-2xs transition-all disabled:opacity-50"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-2xs"
             >
               <RefreshCw className={`w-3.5 h-3.5 text-sky-600 ${refreshing ? 'animate-spin' : ''}`} />
               <span>{refreshing ? 'Recalculating...' : 'Refresh AI Logic'}</span>
@@ -213,453 +273,596 @@ const ProcurementPage = () => {
           )}
 
           <button
+            onClick={handleDownloadCsv}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-2xs"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Export CSV</span>
+          </button>
+
+          <button
             onClick={() => navigate('/purchase-orders')}
             className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold shadow-xs transition-colors"
           >
             <Truck className="w-3.5 h-3.5" />
-            <span>Track Freight POs</span>
+            <span>Goods Receipts &amp; POs</span>
           </button>
         </div>
       </div>
 
-      {/* Role Notice Banner for Staff */}
-      {!isManagerOrAdmin && (
-        <div className="p-4 rounded-2xl bg-sky-50/80 border border-sky-200/90 text-sky-900 flex items-start gap-3 shadow-2xs">
-          <ShieldCheck className="w-5 h-5 text-sky-600 shrink-0 mt-0.5" />
-          <div className="text-xs space-y-1">
-            <span className="font-bold">Staff Role Clearance Active</span>
-            <p className="text-slate-600 leading-relaxed">
-              You have operational visibility into restock requirements and can submit <strong>Purchase Requisitions</strong> directly to management. Contract pricing, direct supplier purchase order issuance, and macro cost expenditures are reserved for Managers and Admins.
-            </p>
+      {/* E. PROCUREMENT SUMMARY CARDS */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+        {[
+          { label: 'Total Products', value: summary?.total_products || 0, color: 'text-slate-900' },
+          { label: 'Reorder Required', value: summary?.products_requiring_reorder || 0, color: 'text-amber-600 font-bold' },
+          { label: 'Out of Stock', value: summary?.out_of_stock_products || 0, color: 'text-rose-600 font-bold' },
+          { label: 'Pending Requests', value: summary?.pending_procurement_requests || 0, color: 'text-sky-600' },
+          { label: 'Approved Requests', value: summary?.approved_procurement_requests || 0, color: 'text-teal-600' },
+          { label: 'Ordered In Transit', value: summary?.ordered_products || 0, color: 'text-indigo-600' },
+          { label: 'Est. Replenish Cost', value: `₹${summary?.estimated_procurement_cost?.toLocaleString() || 0}`, color: 'text-slate-900' }
+        ].map((card, i) => (
+          <div key={i} className="p-3.5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs">
+            <span className="text-[10px] font-semibold text-slate-400 block uppercase leading-tight">{card.label}</span>
+            <span className={`text-lg sm:text-xl font-black mt-1 block ${card.color}`}>{card.value}</span>
           </div>
-        </div>
-      )}
-
-      {/* Procurement Dashboard KPI Strip */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-4 gap-4">
-        <div className="p-4 rounded-2xl bg-white border border-slate-200/90 shadow-xs">
-          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Recommended Purchases</span>
-          <h3 className="text-2xl font-black text-slate-900 mt-1">{dashboard?.recommended_purchases_count || 0}</h3>
-          <span className="text-[11px] text-amber-600 font-bold mt-1 inline-block">
-            {dashboard?.urgent_procurement_count || 0} Urgent Action Required
-          </span>
-        </div>
-
-        <div className="p-4 rounded-2xl bg-white border border-slate-200/90 shadow-xs">
-          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Active Open POs</span>
-          <h3 className="text-2xl font-black text-slate-900 mt-1">{dashboard?.open_pos_count || 0}</h3>
-          <span className="text-[11px] text-sky-600 font-semibold mt-1 inline-block">
-            {dashboard?.in_transit_pos_count || 0} In Transit with carrier
-          </span>
-        </div>
-
-        <div className="p-4 rounded-2xl bg-white border border-slate-200/90 shadow-xs">
-          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Completed Restocks</span>
-          <h3 className="text-2xl font-black text-emerald-600 mt-1">{dashboard?.completed_pos_count || 0}</h3>
-          <span className="text-[11px] text-slate-500 font-medium mt-1 inline-block">
-            Auto-replenished to inventory
-          </span>
-        </div>
-
-        <div className="p-4 rounded-2xl bg-white border border-slate-200/90 shadow-xs">
-          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Total Procurement Spend</span>
-          {isManagerOrAdmin ? (
-            <>
-              <h3 className="text-2xl font-black text-slate-900 mt-1">₹{dashboard?.total_procurement_value?.toLocaleString()}</h3>
-              <span className="text-[11px] text-slate-500 font-medium mt-1 inline-block">
-                Across active network suppliers
-              </span>
-            </>
-          ) : (
-            <>
-              <div className="flex items-center gap-1.5 mt-1 text-slate-400">
-                <Lock className="w-4 h-4 text-sky-500" />
-                <span className="text-lg font-bold text-slate-500">🔒 Protected</span>
-              </div>
-              <span className="text-[11px] text-slate-400 font-medium mt-1 inline-block">
-                Manager clearance required
-              </span>
-            </>
-          )}
-        </div>
+        ))}
       </div>
 
-      {/* Tabs Navigation */}
-      <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
-        <button
-          onClick={() => setActiveTab('recommendations')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-            activeTab === 'recommendations'
-              ? 'bg-sky-600 text-white shadow-xs'
-              : 'text-slate-600 hover:bg-slate-100'
-          }`}
-        >
-          <ShoppingCart className="w-4 h-4" />
-          <span>Purchase Recommendations ({recommendations.length})</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('requisitions')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-            activeTab === 'requisitions'
-              ? 'bg-sky-600 text-white shadow-xs'
-              : 'text-slate-600 hover:bg-slate-100'
-          }`}
-        >
-          <FileText className="w-4 h-4" />
-          <span>Internal Requisitions ({requisitions.length})</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('analytics')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-            activeTab === 'analytics'
-              ? 'bg-sky-600 text-white shadow-xs'
-              : 'text-slate-600 hover:bg-slate-100'
-          }`}
-        >
-          <BarChart2 className="w-4 h-4" />
-          <span>Spend &amp; Supplier Analytics</span>
-        </button>
+      {/* Tabs */}
+      <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-2xl max-w-2xl text-xs font-semibold">
+        {[
+          { id: 'catalog', label: 'Category Product Listing', icon: Package },
+          { id: 'recommendations', label: '1-Click Purchase Cards', icon: ShoppingCart },
+          { id: 'requisitions', label: 'Internal Requisitions', icon: FileText },
+          { id: 'charts', label: 'Procurement Charts', icon: BarChart2 }
+        ].map((tab) => {
+          const Icon = tab.icon;
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl transition-all ${
+                isActive
+                  ? 'bg-white text-slate-900 font-bold shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Icon className="w-3.5 h-3.5" />
+              <span>{tab.label}</span>
+            </button>
+          );
+        })}
       </div>
 
-      {/* TAB 1: Visual Purchase Recommendations */}
-      {activeTab === 'recommendations' && (
+      {/* TAB 1: CATEGORY-WISE PRODUCT LISTING */}
+      {activeTab === 'catalog' && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                <ShoppingCart className="w-5 h-5 text-sky-600" />
-                <span>Automated Sourcing Purchase Cards</span>
-              </h2>
-              <p className="text-xs text-slate-500">
-                Multi-criteria ranked supplier matches balancing turnaround time, cost efficiency, and reliability scores.
-              </p>
+          {/* Controls Bar */}
+          <div className="p-4 rounded-2xl bg-white border border-slate-200/90 shadow-2xs flex flex-col md:flex-row items-center justify-between gap-3 text-xs">
+            <div className="relative w-full md:w-80">
+              <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search products by SKU or name..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-3 py-1.5 text-xs rounded-xl bg-slate-50 border border-slate-200 focus:bg-white focus:outline-hidden"
+              />
             </div>
 
-            {!isManagerOrAdmin && (
-              <span className="text-xs font-semibold text-slate-500">
-                Clicking cards triggers internal requisitions for manager sign-off
-              </span>
-            )}
+            <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+              {/* Category Filter */}
+              <select
+                value={selectedCategory}
+                onChange={(e) => setSelectedCategory(e.target.value)}
+                className="px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-700"
+              >
+                <option value="">All Categories</option>
+                <option value="1">Electronics &amp; Gadgets</option>
+                <option value="2">Home &amp; Living</option>
+                <option value="3">Apparel &amp; Accessories</option>
+                <option value="4">Health &amp; Personal Care</option>
+                <option value="5">Gourmet &amp; Pantry</option>
+              </select>
+
+              {/* Status Filter */}
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-700"
+              >
+                <option value="All">All Statuses</option>
+                <option value="Reorder Required">Reorder Required</option>
+                <option value="Low Stock">Low Stock</option>
+                <option value="Out of Stock">Out of Stock</option>
+                <option value="Pending Procurement">Pending Procurement</option>
+                <option value="Procurement Completed">Procurement Completed</option>
+                <option value="Sufficient Stock">Sufficient Stock</option>
+              </select>
+
+              {/* Sort Selector */}
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                className="px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-700"
+              >
+                <option value="status">Sort by Status Urgency</option>
+                <option value="stock">Sort by Current Stock</option>
+                <option value="name">Sort by Product Name</option>
+                <option value="cost">Sort by Replenishment Cost</option>
+              </select>
+
+              <button
+                onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+                className="p-1.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-600 hover:text-slate-900"
+                title="Toggle Sort Order"
+              >
+                <ArrowUpDown className="w-4 h-4" />
+              </button>
+            </div>
           </div>
 
-          {recommendations.length === 0 ? (
-            <div className="p-12 text-center bg-white rounded-3xl border border-slate-200">
-              <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-2" />
-              <h4 className="font-bold text-slate-700">No procurement recommendations currently</h4>
-              <p className="text-xs text-slate-400 mt-1">All store and warehouse inventory levels are healthy.</p>
-              {isManagerOrAdmin && (
-                <button
-                  onClick={handleRegenerate}
-                  className="mt-4 px-4 py-2 rounded-xl bg-sky-50 text-sky-700 hover:bg-sky-100 text-xs font-bold"
-                >
-                  Force Trigger AI Evaluation
-                </button>
-              )}
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {recommendations.map((rec) => (
-                <PurchaseCard
-                  key={rec.id}
-                  recommendation={rec}
-                  onViewSupplier={() => navigate(`/suppliers`)}
-                  onCreatePO={handleOpenPO}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* TAB 2: Internal Requisitions */}
-      {activeTab === 'requisitions' && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                <FileText className="w-5 h-5 text-sky-600" />
-                <span>Internal Store &amp; Floor Requisitions</span>
-              </h2>
-              <p className="text-xs text-slate-500">
-                Floor staff replenishment requests pending manager review and purchase order generation
-              </p>
-            </div>
-          </div>
-
-          {requisitions.length === 0 ? (
-            <div className="p-12 text-center bg-white rounded-3xl border border-slate-200">
-              <FileText className="w-10 h-10 text-slate-300 mx-auto mb-2" />
-              <h4 className="font-bold text-slate-700">No active internal requisitions</h4>
-              <p className="text-xs text-slate-400 mt-1">Select any recommendation card or create a new requisition to request stock.</p>
-            </div>
-          ) : (
-            <div className="bg-white rounded-3xl border border-slate-200/90 overflow-hidden shadow-xs">
-              <table className="w-full text-left text-xs text-slate-600">
-                <thead className="bg-slate-50/75 border-b border-slate-100 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+          {/* Table */}
+          <div className="bg-white rounded-3xl border border-slate-200/90 shadow-xs overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
                   <tr>
-                    <th className="py-3 px-4">Req #</th>
-                    <th className="py-3 px-4">Requested Date</th>
-                    <th className="py-3 px-4">Priority</th>
-                    <th className="py-3 px-4">Items / Reason</th>
-                    <th className="py-3 px-4">Status</th>
+                    <th className="py-3 px-4">Product Details</th>
+                    <th className="py-3 px-3">Category</th>
+                    <th className="py-3 px-3 text-center">Stock / Target</th>
+                    <th className="py-3 px-3 text-center">Suggested Qty</th>
+                    <th className="py-3 px-3 text-right">Unit Cost</th>
+                    <th className="py-3 px-3 text-right">Est. Cost</th>
+                    <th className="py-3 px-3">Procurement Status</th>
+                    <th className="py-3 px-3">Primary Supplier</th>
+                    <th className="py-3 px-4 text-right">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {requisitions.map((req) => (
-                    <tr key={req.id} className="hover:bg-slate-50/50">
-                      <td className="py-3 px-4 font-mono font-bold text-slate-900">{req.requisition_number}</td>
-                      <td className="py-3 px-4 text-slate-500">{new Date(req.requested_date).toLocaleDateString()}</td>
-                      <td className="py-3 px-4">
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                          req.priority === 'High' ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-slate-100 text-slate-700'
+                <tbody className="divide-y divide-slate-100 text-slate-700">
+                  {procurementProducts.map((p) => (
+                    <tr key={p.product_id} className="hover:bg-slate-50/80 transition-colors">
+                      <td className="py-3.5 px-4">
+                        <div className="flex items-center gap-2.5">
+                          {p.image_url ? (
+                            <img src={p.image_url} alt={p.name} className="w-8 h-8 rounded-lg object-cover border border-slate-200 shrink-0" />
+                          ) : (
+                            <div className="w-8 h-8 rounded-lg bg-sky-100 text-sky-700 flex items-center justify-center font-bold text-xs shrink-0">
+                              SKU
+                            </div>
+                          )}
+                          <div>
+                            <p className="font-bold text-slate-900">{p.name}</p>
+                            <p className="text-[10px] text-slate-400 font-mono">SKU: {p.sku}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-3.5 px-3">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-medium text-slate-700">{p.category_name}</span>
+                          {isManagerOrAdmin && (
+                            <button
+                              onClick={() => {
+                                setSelectedProductToMap(p);
+                                setNewCategoryId(String(p.category_id || 1));
+                                setCategoryModalOpen(true);
+                              }}
+                              className="text-[10px] text-sky-600 hover:text-sky-800 underline font-semibold"
+                              title="Map Category"
+                            >
+                              Edit
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                      <td className="py-3.5 px-3 text-center">
+                        <span className="font-extrabold text-slate-900">{p.current_stock}</span>
+                        <span className="text-slate-400 text-[10px]"> / {p.target_stock}</span>
+                      </td>
+                      <td className="py-3.5 px-3 text-center">
+                        <span className={`font-mono font-black px-2 py-0.5 rounded-md text-[11px] ${
+                          p.suggested_quantity > 0 ? 'bg-sky-50 text-sky-700 border border-sky-200' : 'bg-slate-100 text-slate-400'
                         }`}>
-                          {req.priority}
+                          {p.suggested_quantity} units
                         </span>
                       </td>
-                      <td className="py-3 px-4">
-                        <p className="font-semibold text-slate-800">{req.reason}</p>
-                        <span className="text-[10px] text-slate-400">{req.items?.length || 0} products requested</span>
+                      <td className="py-3.5 px-3 text-right font-mono">₹{p.unit_cost}</td>
+                      <td className="py-3.5 px-3 text-right font-mono font-bold text-slate-900">
+                        ₹{p.estimated_cost?.toLocaleString()}
                       </td>
-                      <td className="py-3 px-4">
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                          req.status === 'Approved' ? 'bg-emerald-50 text-emerald-700' :
-                          req.status === 'Pending' ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-700'
-                        }`}>
-                          {req.status}
+                      <td className="py-3.5 px-3">
+                        <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full border ${STATUS_BADGES[p.procurement_status] || 'bg-slate-100'}`}>
+                          {p.procurement_status}
                         </span>
+                      </td>
+                      <td className="py-3.5 px-3 text-[11px] text-slate-600 font-medium">
+                        {p.supplier_name}
+                      </td>
+                      <td className="py-3.5 px-4 text-right">
+                        <button
+                          onClick={() => handleOpenPO(p)}
+                          className="px-3 py-1 rounded-xl bg-sky-50 hover:bg-sky-600 text-sky-700 hover:text-white font-bold text-[11px] transition-all border border-sky-200 hover:border-transparent"
+                        >
+                          {isManagerOrAdmin ? 'Issue PO' : 'Requisition'}
+                        </button>
                       </td>
                     </tr>
                   ))}
+                  {procurementProducts.length === 0 && (
+                    <tr>
+                      <td colSpan="9" className="py-10 text-center text-slate-400">
+                        No products match the selected category or filters.
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
-          )}
+          </div>
         </div>
       )}
 
-      {/* TAB 3: Monthly Spend & Supplier Analytics */}
-      {activeTab === 'analytics' && (
-        <div className="space-y-6">
-          {!isManagerOrAdmin ? (
-            <div className="p-8 text-center bg-white rounded-3xl border border-slate-200 space-y-3">
-              <Lock className="w-10 h-10 text-sky-500 mx-auto" />
-              <h4 className="font-bold text-slate-800 text-base">Cost Analytics Restricted Under Staff Privacy Shield</h4>
-              <p className="text-xs text-slate-500 max-w-md mx-auto">
-                Detailed vendor contract expenditures and capital allocation matrices require Inventory Manager or System Admin clearance.
-              </p>
-            </div>
-          ) : (
-            analytics && (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="bg-white rounded-3xl border border-slate-200/90 p-6 shadow-xs">
-                  <h3 className="text-base font-bold text-slate-900 mb-1">Monthly Procurement Expenditure</h3>
-                  <p className="text-xs text-slate-500 mb-4">Capital allocated for inventory replenishment</p>
+      {/* TAB 2: 1-CLICK PURCHASE CARDS (EXISTING PRESERVED) */}
+      {activeTab === 'recommendations' && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {(dashboard?.recommendations || []).map((rec) => (
+              <PurchaseCard
+                key={rec.id}
+                recommendation={rec}
+                onOrder={() => handleOpenPO(rec)}
+                role={currentRole}
+              />
+            ))}
+          </div>
+        </div>
+      )}
 
-                  <div className="h-60 w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={analytics.monthly_spending || []} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                        <XAxis dataKey="month" tick={{ fontSize: 11 }} tickLine={false} axisLine={{ stroke: '#e2e8f0' }} />
-                        <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-                        <Tooltip
-                          formatter={(val) => [`₹${val.toLocaleString()}`, 'Expenditure']}
-                          contentStyle={{ borderRadius: '12px', fontSize: '12px' }}
-                        />
-                        <Bar dataKey="amount" fill="#0284c7" radius={[6, 6, 0, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-
-                <div className="bg-white rounded-3xl border border-slate-200/90 p-6 shadow-xs">
-                  <h3 className="text-base font-bold text-slate-900 mb-1">Supplier Spend Concentration</h3>
-                  <p className="text-xs text-slate-500 mb-4">Volume allocated across supply chain partners</p>
-
-                  <div className="h-60 w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart
-                        layout="vertical"
-                        data={analytics.supplier_spending || []}
-                        margin={{ top: 5, right: 20, left: 30, bottom: 5 }}
-                      >
-                        <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
-                        <XAxis type="number" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-                        <YAxis dataKey="supplier" type="category" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
-                        <Tooltip
-                          formatter={(val) => [`₹${val.toLocaleString()}`, 'Spent']}
-                          contentStyle={{ borderRadius: '12px', fontSize: '12px' }}
-                        />
-                        <Bar dataKey="amount" fill="#0d9488" radius={[0, 6, 6, 0]} barSize={16} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
+      {/* TAB 3: INTERNAL REQUISITIONS (EXISTING PRESERVED) */}
+      {activeTab === 'requisitions' && (
+        <div className="space-y-4">
+          <div className="bg-white rounded-3xl border border-slate-200/90 shadow-xs overflow-hidden">
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between">
+              <div>
+                <h3 className="font-bold text-slate-900 text-base">Purchase Requisitions Pipeline</h3>
+                <p className="text-xs text-slate-500">Internal restocking requests submitted by floor personnel</p>
               </div>
-            )
-          )}
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase text-[10px]">
+                  <tr>
+                    <th className="py-3 px-4">Req #</th>
+                    <th className="py-3 px-3">Requested By</th>
+                    <th className="py-3 px-3">Priority</th>
+                    <th className="py-3 px-3">Items</th>
+                    <th className="py-3 px-3">Est Cost</th>
+                    <th className="py-3 px-3">Status</th>
+                    <th className="py-3 px-4 text-right">Approval Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-slate-700">
+                  {requisitions.map((req) => (
+                    <tr key={req.id} className="hover:bg-slate-50">
+                      <td className="py-3.5 px-4 font-mono font-bold text-sky-700">{req.requisition_number}</td>
+                      <td className="py-3.5 px-3 font-semibold text-slate-900">{req.requested_by_name}</td>
+                      <td className="py-3.5 px-3">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${req.priority === 'Critical' ? 'bg-rose-50 text-rose-700' : 'bg-slate-100 text-slate-700'}`}>
+                          {req.priority}
+                        </span>
+                      </td>
+                      <td className="py-3.5 px-3">{req.items_count} items</td>
+                      <td className="py-3.5 px-3 font-mono font-bold">₹{req.total_estimated_cost?.toLocaleString()}</td>
+                      <td className="py-3.5 px-3 font-semibold">{req.status}</td>
+                      <td className="py-3.5 px-4 text-right">
+                        {isManagerOrAdmin && req.status === 'Pending' && (
+                          <button
+                            onClick={async () => {
+                              await procurementService.updateRequisitionStatus(req.id, 'Approved');
+                              loadData();
+                            }}
+                            className="px-3 py-1 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px]"
+                          >
+                            Approve
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {requisitions.length === 0 && (
+                    <tr>
+                      <td colSpan="7" className="py-8 text-center text-slate-400">
+                        No pending purchase requisitions.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       )}
 
-      {/* Create PO Modal (Manager / Admin) */}
+      {/* TAB 4: PROCUREMENT CHARTS (SECTION 2.F) */}
+      {activeTab === 'charts' && chartsData && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Chart 1: Reorder by Category */}
+          <div className="p-5 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-2">
+            <h3 className="font-bold text-slate-900 text-sm">Products Requiring Reorder by Category</h3>
+            <p className="text-[11px] text-slate-500">Number of low-stock SKUs triggering replenishment</p>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={chartsData.reorder_by_category}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                  <XAxis dataKey="category" tick={{ fontSize: 9 }} />
+                  <YAxis tick={{ fontSize: 10 }} />
+                  <Tooltip />
+                  <Bar dataKey="count" name="Reorder Products" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Chart 2: Current Stock vs Target Stock */}
+          <div className="p-5 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-2">
+            <h3 className="font-bold text-slate-900 text-sm">Current Stock vs Target Level</h3>
+            <p className="text-[11px] text-slate-500">Deficit gap analysis for top needy catalog items</p>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={chartsData.stock_vs_target}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                  <XAxis dataKey="name" tick={{ fontSize: 9 }} />
+                  <YAxis tick={{ fontSize: 10 }} />
+                  <Tooltip />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  <Bar dataKey="current_stock" name="Current Stock" fill="#0284c7" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="target_stock" name="Target Stock" fill="#94a3b8" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Chart 3: Requests by Status */}
+          <div className="p-5 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-2">
+            <h3 className="font-bold text-slate-900 text-sm">Purchase Orders by Status</h3>
+            <p className="text-[11px] text-slate-500">Current lifecycle states of vendor commitments</p>
+            <div className="h-64 flex items-center justify-center">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={chartsData.requests_by_status}
+                    dataKey="count"
+                    nameKey="status"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={80}
+                    label={({ name, count }) => `${name}: ${count}`}
+                  >
+                    {chartsData.requests_by_status.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Chart 4: Replenishment Cost by Category */}
+          <div className="p-5 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-2">
+            <h3 className="font-bold text-slate-900 text-sm">Estimated Procurement Cost by Category</h3>
+            <p className="text-[11px] text-slate-500">Projected expenditure in INR to restore full target holding</p>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={chartsData.cost_by_category}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                  <XAxis dataKey="category" tick={{ fontSize: 9 }} />
+                  <YAxis tick={{ fontSize: 10 }} tickFormatter={(v) => `₹${v}`} />
+                  <Tooltip formatter={(val) => `₹${Number(val).toLocaleString()}`} />
+                  <Bar dataKey="cost" name="Est. Cost" fill="#10b981" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Map Category */}
+      <Modal
+        isOpen={categoryModalOpen}
+        onClose={() => setCategoryModalOpen(false)}
+        title="Map Product Category"
+      >
+        {selectedProductToMap && (
+          <form onSubmit={handleSaveCategoryMapping} className="space-y-4">
+            <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200">
+              <p className="font-bold text-slate-900 text-xs">{selectedProductToMap.name}</p>
+              <p className="text-[10px] text-slate-500 font-mono">SKU: {selectedProductToMap.sku}</p>
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-slate-700 block mb-1">Target Department / Category</label>
+              <select
+                value={newCategoryId}
+                onChange={(e) => setNewCategoryId(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs focus:outline-hidden"
+              >
+                <option value="1">Electronics &amp; Gadgets</option>
+                <option value="2">Home &amp; Living</option>
+                <option value="3">Apparel &amp; Accessories</option>
+                <option value="4">Health &amp; Personal Care</option>
+                <option value="5">Gourmet &amp; Pantry</option>
+              </select>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setCategoryModalOpen(false)}
+                className="px-4 py-2 rounded-xl bg-slate-100 text-slate-700 text-xs font-semibold"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={mappingLoading}
+                className="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold shadow-xs"
+              >
+                {mappingLoading ? 'Saving...' : 'Save Mapping'}
+              </button>
+            </div>
+          </form>
+        )}
+      </Modal>
+
+      {/* MODAL: Issue PO */}
       <Modal
         isOpen={poModalOpen}
         onClose={() => setPoModalOpen(false)}
-        title={`Create Purchase Order for ${selectedCard?.product_name}`}
+        title="Issue Purchase Order to Supplier"
       >
-        <form onSubmit={handleCreatePOSubmit} className="space-y-4 text-xs">
-          <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-100 flex items-center gap-3">
-            <img
-              src={selectedCard?.product_image}
-              alt={selectedCard?.product_name}
-              className="w-14 h-14 rounded-lg object-cover border border-slate-200 shrink-0"
-            />
+        {selectedCard && (
+          <form onSubmit={handleCreatePOSubmit} className="space-y-4">
+            <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between">
+              <div>
+                <p className="font-bold text-slate-900 text-xs">{selectedCard.name}</p>
+                <p className="text-[10px] text-slate-500 font-mono">Cost: ₹{selectedCard.unit_cost} / unit</p>
+              </div>
+              <div className="text-right">
+                <span className="text-[10px] text-slate-400 block">Suggested Qty</span>
+                <span className="font-bold text-sky-700 text-sm">{selectedCard.suggested_quantity} units</span>
+              </div>
+            </div>
+
             <div>
-              <h5 className="font-bold text-slate-900">{selectedCard?.product_name}</h5>
-              <p className="text-[11px] text-slate-500">
-                Unit Cost: ₹{selectedCard?.unit_cost} • Lead Time: {selectedCard?.lead_time_days} days
-              </p>
-              <p className="text-[11px] font-bold text-emerald-700 mt-0.5">
-                Total Estimated PO Value: ₹{(poQty * (selectedCard?.unit_cost || 0)).toLocaleString()}
+              <label className="text-xs font-bold text-slate-700 block mb-1">Approved Purchase Order Quantity</label>
+              <input
+                type="number"
+                min="1"
+                required
+                value={poQty}
+                onChange={(e) => setPoQty(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm font-bold focus:outline-hidden"
+              />
+              <p className="text-[11px] text-slate-500 mt-1">
+                Total Commitment Value: <strong>₹{(poQty * selectedCard.unit_cost).toLocaleString()}</strong>
               </p>
             </div>
-          </div>
 
-          <div>
-            <label className="font-semibold text-slate-700 block mb-1">Procurement Units</label>
-            <input
-              type="number"
-              min="1"
-              required
-              value={poQty}
-              onChange={(e) => setPoQty(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 outline-none font-bold text-slate-900"
-            />
-          </div>
+            <div>
+              <label className="text-xs font-bold text-slate-700 block mb-1">Vendor / Supplier</label>
+              <select
+                value={poSupplierId}
+                onChange={(e) => setPoSupplierId(Number(e.target.value))}
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs focus:outline-hidden"
+              >
+                <option value={1}>Apex Logistics &amp; Hardware Ltd.</option>
+                <option value={2}>Nordic Design Warehousing Inc.</option>
+                <option value={3}>AeroTech Supply Chain Co.</option>
+                <option value={4}>Nexus Global Electronics</option>
+                <option value={5}>Heritage Organics Logistics</option>
+              </select>
+            </div>
 
-          <div>
-            <label className="font-semibold text-slate-700 block mb-1">Target Supplier</label>
-            <select
-              value={poSupplierId}
-              onChange={(e) => setPoSupplierId(parseInt(e.target.value))}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 outline-none"
-            >
-              <option value="1">Apex Global Tech Ltd (Rating: 4.9★, Reliability: 97.5%)</option>
-              <option value="2">Nexa Distribution Group (Rating: 4.7★, Reliability: 93.8%)</option>
-              <option value="3">PrimeSource Supply Chain (Rating: 4.5★, Reliability: 91.2%)</option>
-              <option value="4">ZenFlow Sustainable Goods (Rating: 4.8★, Reliability: 96.0%)</option>
-              <option value="5">Vanguard Industrial Trading (Rating: 4.3★, Reliability: 88.5%)</option>
-            </select>
-          </div>
+            <div>
+              <label className="text-xs font-bold text-slate-700 block mb-1">Internal PO Notes</label>
+              <input
+                type="text"
+                value={poNotes}
+                onChange={(e) => setPoNotes(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs focus:outline-hidden"
+              />
+            </div>
 
-          <div>
-            <label className="font-semibold text-slate-700 block mb-1">Purchase Order Instructions</label>
-            <textarea
-              rows="2"
-              value={poNotes}
-              onChange={(e) => setPoNotes(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 outline-none"
-            />
-          </div>
-
-          <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
-            <button
-              type="button"
-              onClick={() => setPoModalOpen(false)}
-              className="px-4 py-2 rounded-xl font-semibold text-slate-600 hover:bg-slate-100"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={poSubmitting}
-              className="px-5 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white font-bold transition-colors shadow-xs"
-            >
-              {poSubmitting ? 'Issuing PO...' : 'Confirm & Issue PO'}
-            </button>
-          </div>
-        </form>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setPoModalOpen(false)}
+                className="px-4 py-2 rounded-xl bg-slate-100 text-slate-700 text-xs font-semibold"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={poSubmitting}
+                className="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold shadow-xs"
+              >
+                {poSubmitting ? 'Creating PO...' : 'Confirm & Issue Purchase Order'}
+              </button>
+            </div>
+          </form>
+        )}
       </Modal>
 
-      {/* Submit Requisition Modal (Staff / Floor members) */}
+      {/* MODAL: Staff Requisition */}
       <Modal
         isOpen={reqModalOpen}
         onClose={() => setReqModalOpen(false)}
-        title={`Request Stock Requisition for ${reqItem?.product_name}`}
+        title="Submit Stock Requisition Request"
       >
-        <form onSubmit={handleCreateReqSubmit} className="space-y-4 text-xs">
-          <div className="p-3.5 rounded-xl bg-sky-50 border border-sky-100 flex items-center gap-3">
-            <img
-              src={reqItem?.product_image}
-              alt={reqItem?.product_name}
-              className="w-14 h-14 rounded-lg object-cover border border-sky-200 shrink-0"
-            />
-            <div>
-              <h5 className="font-bold text-slate-900">{reqItem?.product_name}</h5>
-              <p className="text-[11px] text-slate-500">
-                Current Floor Stock: <span className="font-bold text-amber-600">{reqItem?.current_stock} units</span>
-              </p>
-              <p className="text-[11px] text-sky-700 font-semibold mt-0.5">
-                Suggested Restock: {reqItem?.recommended_quantity} units
-              </p>
+        {reqItem && (
+          <form onSubmit={handleCreateReqSubmit} className="space-y-4">
+            <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200">
+              <p className="font-bold text-slate-900 text-xs">{reqItem.name}</p>
+              <p className="text-[10px] text-slate-500 font-mono">Current Floor Stock: {reqItem.current_stock} units</p>
             </div>
-          </div>
 
-          <div>
-            <label className="font-semibold text-slate-700 block mb-1">Requested Quantity</label>
-            <input
-              type="number"
-              min="1"
-              required
-              value={reqQty}
-              onChange={(e) => setReqQty(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 outline-none font-bold text-slate-900"
-            />
-          </div>
+            <div>
+              <label className="text-xs font-bold text-slate-700 block mb-1">Requested Requisition Quantity</label>
+              <input
+                type="number"
+                min="1"
+                required
+                value={reqQty}
+                onChange={(e) => setReqQty(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm font-bold focus:outline-hidden"
+              />
+            </div>
 
-          <div>
-            <label className="font-semibold text-slate-700 block mb-1">Priority</label>
-            <select
-              value={reqPriority}
-              onChange={(e) => setReqPriority(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 outline-none"
-            >
-              <option value="Low">Low - Normal Shelf Stock</option>
-              <option value="Medium">Medium - Regular Restock</option>
-              <option value="High">High - Impending Stock-Out</option>
-            </select>
-          </div>
+            <div>
+              <label className="text-xs font-bold text-slate-700 block mb-1">Urgency Priority</label>
+              <select
+                value={reqPriority}
+                onChange={(e) => setReqPriority(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs focus:outline-hidden"
+              >
+                <option value="Low">Low - Normal Replenishment</option>
+                <option value="Medium">Medium - Standard Operational</option>
+                <option value="High">High - Impending Stockout</option>
+                <option value="Critical">Critical - Floor Exhaustion</option>
+              </select>
+            </div>
 
-          <div>
-            <label className="font-semibold text-slate-700 block mb-1">Reason for Requisition</label>
-            <textarea
-              rows="2"
-              required
-              value={reqReason}
-              onChange={(e) => setReqReason(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 outline-none"
-            />
-          </div>
+            <div>
+              <label className="text-xs font-bold text-slate-700 block mb-1">Justification Reason</label>
+              <textarea
+                rows={2}
+                value={reqReason}
+                onChange={(e) => setReqReason(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs focus:outline-hidden"
+              />
+            </div>
 
-          <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
-            <button
-              type="button"
-              onClick={() => setReqModalOpen(false)}
-              className="px-4 py-2 rounded-xl font-semibold text-slate-600 hover:bg-slate-100"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={reqSubmitting}
-              className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-sky-600 to-teal-600 hover:from-sky-700 hover:to-teal-700 disabled:opacity-50 text-white font-bold transition-all shadow-xs flex items-center gap-1.5"
-            >
-              <Send className="w-3.5 h-3.5" />
-              <span>{reqSubmitting ? 'Submitting...' : 'Submit Requisition'}</span>
-            </button>
-          </div>
-        </form>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setReqModalOpen(false)}
+                className="px-4 py-2 rounded-xl bg-slate-100 text-slate-700 text-xs font-semibold"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={reqSubmitting}
+                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs"
+              >
+                {reqSubmitting ? 'Submitting...' : 'Send to Manager'}
+              </button>
+            </div>
+          </form>
+        )}
       </Modal>
     </div>
   );

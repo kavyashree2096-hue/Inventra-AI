@@ -25,6 +25,9 @@ import AlertsPage from './pages/Alerts';
 import ReportsPage from './pages/Reports';
 import AdminPage from './pages/Admin';
 import CareersPage from './pages/Careers';
+import AuditOperations from './pages/AuditOperations';
+import RevenueAnalysis from './pages/RevenueAnalysis';
+import DataAnalysis from './pages/DataAnalysis';
 
 // Authenticated Layout wrapper
 const AppLayout = ({ children }) => {
@@ -111,6 +114,30 @@ function App() {
               />
 
               {/* Planning & Management Routes (Manager + Admin) */}
+              <Route
+                path="/revenue"
+                element={
+                  <RoleRoute allowedRoles={['Admin', 'Manager', 'Staff']} moduleName="Revenue & Financial Analytics">
+                    <RevenueAnalysis />
+                  </RoleRoute>
+                }
+              />
+              <Route
+                path="/audit"
+                element={
+                  <RoleRoute allowedRoles={['Admin', 'Manager', 'Staff']} moduleName="Audit Operations Center">
+                    <AuditOperations />
+                  </RoleRoute>
+                }
+              />
+              <Route
+                path="/data-analysis"
+                element={
+                  <RoleRoute allowedRoles={['Admin', 'Manager']} moduleName="Data Science & EDA Workspace">
+                    <DataAnalysis />
+                  </RoleRoute>
+                }
+              />
               <Route
                 path="/sales"
                 element={

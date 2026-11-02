@@ -49,5 +49,40 @@ export const procurementService = {
   getCostAnalytics: async () => {
     const res = await api.get('/procurement/analytics');
     return res.data;
+  },
+
+  // Extended Procurement Hub endpoints
+  getProcurementProducts: async (params = {}) => {
+    const res = await api.get('/procurement/products', { params });
+    return res.data;
+  },
+
+  updateProductCategory: async (productId, categoryId) => {
+    const res = await api.put(`/procurement/products/${productId}/category`, { category_id: categoryId });
+    return res.data;
+  },
+
+  getSummary: async () => {
+    const res = await api.get('/procurement/summary');
+    return res.data;
+  },
+
+  getCharts: async () => {
+    const res = await api.get('/procurement/charts');
+    return res.data;
+  },
+
+  receivePO: async (id, notes = '') => {
+    const res = await api.post(`/procurement/purchase-orders/${id}/receive`, { notes });
+    return res.data;
+  },
+
+  cancelPO: async (id, reason) => {
+    const res = await api.post(`/procurement/purchase-orders/${id}/cancel`, { reason });
+    return res.data;
+  },
+
+  getExportUrl: () => {
+    return '/api/procurement/export';
   }
 };

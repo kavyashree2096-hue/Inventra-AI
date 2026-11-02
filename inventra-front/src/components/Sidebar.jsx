@@ -3,7 +3,8 @@ import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, TrendingUp, LineChart, Boxes, Package,
   RefreshCw, ShoppingCart, Truck, FileText, AlertCircle,
-  FileSpreadsheet, Settings, X, Sparkles, Shield, Lock, CheckCircle2
+  FileSpreadsheet, Settings, X, Sparkles, Shield, Lock, CheckCircle2,
+  DollarSign, ClipboardCheck, Database
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
@@ -16,16 +17,19 @@ const operationalItems = [
 ];
 
 const planningItems = [
-  { path: '/sales', label: 'Sales Analytics', icon: TrendingUp, desc: 'Velocity & store revenue' },
+  { path: '/procurement', label: 'Procurement Hub', icon: ShoppingCart, desc: 'Replenishment & purchase cards' },
+  { path: '/revenue', label: 'Revenue Analysis', icon: DollarSign, desc: 'Portfolio & SKU profitability' },
   { path: '/forecast', label: 'Demand Forecasting', icon: LineChart, desc: 'ML models & retrain' },
   { path: '/reorders', label: 'Smart Reorders', icon: RefreshCw, desc: 'Deficit & safety stock' },
-  { path: '/procurement', label: 'Procurement Hub', icon: ShoppingCart, desc: '1-click purchase cards' },
+  { path: '/sales', label: 'Sales Analytics', icon: TrendingUp, desc: 'Velocity & store revenue' },
   { path: '/suppliers', label: 'Suppliers Matrix', icon: Truck, desc: 'Multi-criteria ranking' },
-  { path: '/reports', label: 'Executive Reports', icon: FileSpreadsheet, desc: 'Audit summaries & CSV' },
 ];
 
-const adminItems = [
-  { path: '/admin', label: 'Admin & Governance', icon: Settings, desc: 'Personnel RBAC & audit logs' },
+const governanceItems = [
+  { path: '/audit', label: 'Audit Operations', icon: ClipboardCheck, desc: 'Stock verification & logs' },
+  { path: '/data-analysis', label: 'Data Analysis & EDA', icon: Database, desc: 'Quartiles, distributions & uploads' },
+  { path: '/reports', label: 'Executive Reports', icon: FileSpreadsheet, desc: '10 certified audit reports & CSV' },
+  { path: '/admin', label: 'Settings & Governance', icon: Settings, desc: 'Personnel RBAC & audit logs' },
 ];
 
 const Sidebar = ({ isOpen, onClose }) => {
@@ -121,7 +125,7 @@ const Sidebar = ({ isOpen, onClose }) => {
                   to={item.path}
                   onClick={onClose}
                   className={({ isActive }) =>
-                    `flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+                    `flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
                       isActive
                         ? 'bg-gradient-to-r from-sky-50 to-emerald-50/60 text-sky-800 font-bold border-l-4 border-sky-600 shadow-xs'
                         : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
@@ -137,11 +141,11 @@ const Sidebar = ({ isOpen, onClose }) => {
             })}
           </div>
 
-          {/* Section 2: Planning & Forecasting (Manager & Admin) */}
+          {/* Section 2: Planning & Financial Analytics */}
           <div className="space-y-1 mb-5">
             <div className="flex items-center justify-between px-3 mb-1.5">
               <p className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">
-                Planning &amp; Intelligence
+                Planning &amp; Analytics
               </p>
               {!isManagerOrAdmin && (
                 <span className="text-[9px] font-bold text-amber-600 flex items-center gap-1 bg-amber-50 px-1.5 py-0.5 rounded">
@@ -158,7 +162,7 @@ const Sidebar = ({ isOpen, onClose }) => {
                   to={item.path}
                   onClick={onClose}
                   className={({ isActive }) =>
-                    `flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+                    `flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
                       isActive
                         ? 'bg-gradient-to-r from-sky-50 to-emerald-50/60 text-sky-800 font-bold border-l-4 border-sky-600 shadow-xs'
                         : isManagerOrAdmin || item.path === '/procurement'
@@ -183,31 +187,32 @@ const Sidebar = ({ isOpen, onClose }) => {
             })}
           </div>
 
-          {/* Section 3: Governance & Security (Admin) */}
+          {/* Section 3: Data Intelligence & Governance */}
           <div className="space-y-1 mb-5">
             <div className="flex items-center justify-between px-3 mb-1.5">
               <p className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">
-                Security &amp; Governance
+                Governance &amp; Intelligence
               </p>
-              {!isAdmin && (
+              {!isManagerOrAdmin && (
                 <span className="text-[9px] font-bold text-rose-600 flex items-center gap-1 bg-rose-50 px-1.5 py-0.5 rounded">
-                  <Lock className="w-2.5 h-2.5" /> Admin
+                  <Lock className="w-2.5 h-2.5" /> Secure
                 </span>
               )}
             </div>
 
-            {adminItems.map((item) => {
+            {governanceItems.map((item) => {
               const Icon = item.icon;
+              const hasClearance = item.path === '/admin' ? isAdmin : isManagerOrAdmin;
               return (
                 <NavLink
                   key={item.path}
                   to={item.path}
                   onClick={onClose}
                   className={({ isActive }) =>
-                    `flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+                    `flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
                       isActive
                         ? 'bg-gradient-to-r from-sky-50 to-emerald-50/60 text-sky-800 font-bold border-l-4 border-sky-600 shadow-xs'
-                        : isAdmin
+                        : hasClearance
                         ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
                         : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50/50'
                     }`
@@ -217,7 +222,7 @@ const Sidebar = ({ isOpen, onClose }) => {
                     <Icon className="w-4 h-4 stroke-[2]" />
                     <span>{item.label}</span>
                   </div>
-                  {!isAdmin && (
+                  {!hasClearance && (
                     <Lock className="w-3 h-3 text-slate-300 shrink-0" />
                   )}
                 </NavLink>

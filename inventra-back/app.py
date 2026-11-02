@@ -22,11 +22,15 @@ def create_app(config_class=Config):
 
     # Database connection test & graceful fallback
     raw_db_url = app.config.get('SQLALCHEMY_DATABASE_URI', '')
+    if raw_db_url.startswith('postgres://'):
+        raw_db_url = raw_db_url.replace('postgres://', 'postgresql://', 1)
+        app.config['SQLALCHEMY_DATABASE_URI'] = raw_db_url
+
     base_dir = os.path.abspath(os.path.dirname(__file__))
     if raw_db_url.startswith('postgresql'):
         try:
             # Test if PostgreSQL is reachable
-            engine = create_engine(raw_db_url, connect_args={'connect_timeout': 2})
+            engine = create_engine(raw_db_url, connect_args={'connect_timeout': 5})
             conn = engine.connect()
             conn.close()
             print("Successfully connected to PostgreSQL database!")
@@ -40,6 +44,17 @@ def create_app(config_class=Config):
 
     # Register all modular REST API blueprints
     register_blueprints(app)
+
+    # Root status endpoint
+    @app.route('/', methods=['GET'])
+    def root_status():
+        db_type = 'PostgreSQL' if 'postgresql' in app.config['SQLALCHEMY_DATABASE_URI'] else 'SQLite'
+        return jsonify({
+            'status': 'healthy',
+            'application': 'Inventra AI - Retail Demand Prediction & Procurement Intelligence',
+            'database': db_type,
+            'version': '1.0.0'
+        }), 200
 
     # Health check endpoint
     @app.route('/api/health', methods=['GET'])

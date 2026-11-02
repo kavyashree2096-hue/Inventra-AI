@@ -1,11 +1,75 @@
+# Dependencies
 node_modules/
 inventra-front/node_modules/
 inventra-front/dist/
+dist/
+build/
+
+# Virtual Environments
+.venv/
+*/.venv/
+venv/
+*/venv/
+env/
+ENV/
+
+# Python cache & artifacts
 __pycache__/
 */__pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+
+# Environment files and secrets (CRITICAL: exclude passwords and secrets)
+.env
+.env.*
+*.env
+!.env.example
+inventra-back/.env
+
+# Private database files (CRITICAL: exclude SQLite & backup databases)
+*.db
+*.db.bak
+*.sqlite
+*.sqlite3
+inventra_ai.db
+inventra_ai.db.bak
+inventra-back/inventra_ai.db
+inventra-back/inventra_ai.db.bak
+
+# IDE & Editor files
 .vscode/
+.idea/
+*.swp
+*.swo
 .DS_Store
+Thumbs.db
+
+# Logs and runtime artifacts
 *.log
+npm-debug.log*
+yarn-debug.log*
+
+# Browser temp directories & doc generator scratch files
+edge_profile/
+edge_temp_profile/
+screenshots/
+pdf_samples/
+doc_generator/
+Inventra_AI_Project_Report.docx
+Inventra_AI_Project_Report.pdf
+# Local report and PDF build scripts
+build_full_documentation.py
+build_full_report.py
+check_footers.py
+diagrams/
+doc_builder_part1.py
+export_documentation_pdf.ps1
+export_pdf.ps1
+full_user_prompt.txt
+generate_extended_diagrams.py
+get_exact_toc_pages.py
+get_page_mappings.py
+map_fig_tbl_pages.py
+verify_pdf.py
